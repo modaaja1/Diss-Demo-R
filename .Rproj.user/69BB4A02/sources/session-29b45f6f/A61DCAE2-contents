@@ -1,0 +1,91 @@
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    http://shiny.rstudio.com/
+#
+
+library(shiny)
+library(stringr)
+library(readr)
+library(dplyr)
+library(highcharter)
+library(DT)
+
+# Load your data
+url <- str_glue("https://www150.statcan.gc.ca/t1/tbl1/en/",
+                "dtl!downloadDbLoadingData.action?pid=1710000901&",
+                "latestN=50&startDate=&endDate=&csvLocale=en&",
+                
+                "selectedMembers=",
+                
+                URLencode("[[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]]",
+                          reserved = TRUE))
+
+data <- read_csv(url)
+
+# Cleaning and removing columns
+cleaned_data <- data %>%
+    select(REF_DATE, GEO, VALUE) %>%  # Remove specific columns
+    filter(!is.na(GEO))  # Remove rows with missing GEO values
+
+# Define UI
+ui <- fluidPage(
+    titlePanel("Population estimates, quarterly"),
+    selectInput(inputId = "geo_filter", label = "Select GEO:", choices = unique(data$GEO)),
+
+    tags$style(HTML("
+    .rounded-border {
+      border-radius: 5px;
+    }
+  ")),
+  
+    highchartOutput("line_chart"),
+    DTOutput("formatted_table"),
+    
+)
+
+# Define server
+server <- function(input, output) {
+    
+    filtered_data <- reactive({
+        subset(cleaned_data, GEO == input$geo_filter)
+    })
+    
+    output$line_chart <- renderHighchart({
+                highchart() %>%
+                hc_chart(type = "line") %>%
+                hc_title(text = "Population Over Time") %>%
+                hc_xAxis(categories = filtered_data()$REF_DATE) %>%
+                hc_yAxis(title = list(text = "Population"),
+                         labels = list(
+                             formatter = JS("function() {
+                 return Highcharts.numberFormat(this.value, 0, '.', ',');
+               }")
+                         )) %>%
+                hc_add_series(name = "Population", data = filtered_data()$VALUE)%>%
+            hc_tooltip(pointFormatter = JS("
+      function() {
+        var formattedValue = Highcharts.numberFormat(this.y, 0, '.', ',');
+        return '<span style=\"color:' + this.series.color + '\">' + this.series.name + '</span>: <b>' + formattedValue + '</b><br/>';
+      }
+    "))
+    })
+    
+    output$formatted_table <- renderDT({
+        datatable(filtered_data(), 
+                  options = list(pageLength = 10), 
+                  class = 'cell-border stripe rounded-border',
+                  rownames = FALSE) %>%
+            formatStyle(columns = c("REF_DATE", "GEO", "VALUE"),
+                        backgroundColor = 'white') %>%
+            formatCurrency("VALUE", currency = "", interval = 3, mark = ",") %>%
+            formatRound("VALUE", digits = 0)
+    })
+    
+}
+
+# Run the app
+shinyApp(ui, server)

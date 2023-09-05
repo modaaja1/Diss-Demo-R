@@ -1,0 +1,104 @@
+library(cansim)
+
+get_cansim_two<-function (cansimTableNumber="3610009601", language = "english", refresh = FALSE, 
+          timeout = 200, factors = FALSE, default_month = "07", 
+          default_day = "01", start_year=2010, end_year=2021, VECTORLIST=vect_3610009601$VECTOR){
+  require(dplyr)
+  require(cansim)
+  
+  cleaned_number <- cansim:::cleaned_ndm_table_number(cansimTableNumber)
+  cleaned_language <- cansim:::cleaned_ndm_language(language)
+  base_table <- cansim:::naked_ndm_table_number(cleaned_number)
+  path <- paste0(cansim:::base_path_for_table_language(cleaned_number, 
+                                              language), ".zip")
+  data_path <- paste0(cansim:::base_path_for_table_language(cleaned_number, 
+                                                   language), ".Rda")
+  if (refresh | !file.exists(data_path)) {
+    if (cleaned_language == "eng") {
+      message(paste0("Accessing CANSIM NDM product ", 
+                     cleaned_number, " from Statistics Canada"))
+    }else{ 
+      message(paste0("Acc", intToUtf8(233), "der au produit ", 
+                        cleaned_number, " CANSIM NDM de Statistique Canada"))
+      }
+    
+    url = paste0("https://www150.statcan.gc.ca/n1/tbl/csv/", cansim:::file_path_for_table_language(cleaned_number, language), ".zip")
+    response <- cansim:::get_with_timeout_retry(url, path = path, timeout = timeout)
+    
+    if (is.null(response))  return(response)
+    
+    data <- NA
+    na_strings = c("<NA>", NA, "NA", "", 
+                   "F")
+    exdir = file.path(tempdir(), cansim:::file_path_for_table_language(cleaned_number, 
+                                                              language))
+    uzp <- getOption("unzip")
+    if (is.null(uzp)) uzp <- "internal"
+    
+    utils::unzip(path, exdir = exdir, unzip = uzp)
+    unlink(path)
+    
+    if (cleaned_language == "eng") {
+      message("Parsing data")
+      csv_reader <- readr::read_csv
+      value_column = "VALUE"
+      
+      data <- csv_reader(file.path(exdir, paste0(base_table,".csv")), na = na_strings, locale = readr::locale(encoding = "UTF-8"),col_types = list(.default = "c"))%>%
+        dplyr::filter_at(1, all_vars(as.numeric(.)>=start_year & as.numeric(.)<=end_year)  )%>%
+        dplyr::filter(VECTOR %in%VECTORLIST)
+      
+    }else {
+      message(paste0("Analyser les donn", intToUtf8(233), 
+                     "es"))
+      csv_reader <- readr::read_csv2
+      value_column = "VALEUR"
+      
+      data <- csv_reader(file.path(exdir, paste0(base_table,".csv")), na = na_strings, locale = readr::locale(encoding = "UTF-8"),col_types = list(.default = "c"))%>%
+        dplyr::filter_at(1, all_vars(as.numeric(.)>=start_year & as.numeric(.)<=end_year)  )%>%
+        dplyr::filter(VECTEUR %in%VECTORLIST)
+    }
+    
+
+  
+      
+             #dplyr::filter_at(1, all_vars(as.numeric(.)>=start_year & as.numeric(.)<=end_year)  )%>%
+            #dplyr::filter_at(vector, all_vars(. %in%VECTORLIST))
+    
+    
+    
+    data <- data%>%cansim:::transform_value_column(value_column)
+    meta <- suppressWarnings(csv_reader(file.path(exdir, 
+                                                  paste0(base_table, "_MetaData.csv")), na = na_strings, 
+                                        locale = readr::locale(encoding = "UTF-8"), 
+                                        col_types = list(.default = "c")))
+    tryCatch({
+      cansim::: parse_metadata(meta, data_path)
+      meta2 <- readRDS(paste0(data_path, "2"))
+      dimension_name_column <- ifelse(cleaned_language == 
+                                        "eng", "Dimension name", "Nom de la dimension")
+      data <- cansim:::fold_in_metadata_for_columns(data, data_path, 
+                                           pull(meta2, dimension_name_column))
+    }, error = function(e) {
+      warning("Could not fold in metadata")
+      if (nrow(data) == 0) 
+        warning(paste0("StatCan returned zero rows of data for table ", 
+                       cleaned_number, ", this is likely a problem with StatCan."))
+    })
+    if (!is.null(getOption("cansim.debug"))) 
+      message("saving data")
+    saveRDS(data, file = data_path)
+    unlink(exdir, recursive = TRUE)
+  }
+  else {
+    if (cleaned_language == "eng") 
+      message(paste0("Reading CANSIM NDM product ", 
+                     cleaned_number), " from cache.")
+    else message(paste0("Lecture du produit ", cleaned_number), 
+                 " de CANSIM NDM ", intToUtf8(224), " partir du cache.")
+    data <- readRDS(file = data_path)
+  }
+  if (!is.null(getOption("cansim.debug"))) 
+    message("Initiating normalization")
+  data %>% cansim:::normalize_cansim_values(replacement_value = "val_norm", 
+                                   factors = factors, default_month = default_month, default_day = default_day)
+}

@@ -1,0 +1,47 @@
+
+
+ui<-tagList( useShinyjs()
+             ,navbarPage(
+                           tags$head(
+                             tags$link(rel="stylesheet", text="text/css", href="style.css"),
+                             tags$style(HTML(".box-header {display: block;
+                             padding: 0.5px; height:0.5px; position: relative;}")),
+                             tags$style("input {font-family: Arial; font-size:12px}"),
+                             tags$style("label {font-family: Arial; font-size:12px}")
+                             ,
+                             tags$style('.navbar-brand {
+                             border: 0px;
+                             background-color: #FFFFFF;
+                             width: 50px;}')
+                             # ,
+                             # tags$style(''
+                             #            )
+                             # 
+                             # # nav. container:first-child{
+                             # #   margin-left:10px; width:100%;
+                             # # }
+
+                           ),
+                         
+                         
+               tabPanel(h5("Residential stock",style="font-family:Arial; text-align: center;"),
+                        br(),
+                    mainPanel(width=12, style="margin-left:0; margin-right:0",
+                      uiOutput("tab_ResStock")
+                    ), class='flex-center'
+                    ),
+               tabPanel(h5("Non-residential stock",style="font-family:Arial; text-align: center;"),
+                        mainPanel(width=12, style="margin-left:0; margin-right:0",
+                          uiOutput("tab_NonResStock")
+                        ), class='flex-center'
+               ),
+               tabPanel(h5("Non-residential stock: All industries",style="font-family:Arial; text-align: center;"),
+                        mainPanel(width=12, style="margin-left:0; margin-right:0",
+                          uiOutput("tab_NonResStockAll")
+                        ), class='flex-center'
+               )
+               ))
+              
+
+
+

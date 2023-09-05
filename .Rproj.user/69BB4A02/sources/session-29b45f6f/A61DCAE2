@@ -1,0 +1,26 @@
+{
+    "id": "A61DCAE2",
+    "path": "C:/Projects/Diss-Demo-R/app.R",
+    "project_path": "app.R",
+    "type": "r_source",
+    "hash": "2111448590",
+    "contents": "",
+    "dirty": false,
+    "created": 1693252975993.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "66,31",
+        "scrollLine": "48"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1693264049,
+    "encoding": "ISO8859-1",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1693264049997,
+    "read_only": false,
+    "read_only_alternatives": []
+}

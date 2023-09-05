@@ -1,0 +1,498 @@
+
+output$tab_ResStock<-renderUI({
+  
+  
+  fluidRow(column(12, uiOutput("Restext"),
+                       uiOutput("ResBar"),                       
+                       uiOutput("RUiplot1"), uiOutput("RUiplot2"),
+                        uiOutput("ResComment"),
+                       uiOutput("RUiplot3"),uiOutput("RUiplot4"))  )
+
+
+  
+  })
+
+output$ResBar<-renderUI({
+  
+  
+  column(12,  fluidPage(class="Commentdiv",
+                        fluidRow( column(12,column(4,selectInput(inputId ="EstimateRS", label="Estimate",choices=EstimatesF)),
+                                         column(4,selectInput(inputId ="YearRS", label="Reference period",  choices =c(Syear:Eyear) , selected = Dyear))
+                                         )), 
+                        fluidRow(column(12,column(4,selectInput(inputId ="ProvRS", label="Geography",  choices =ListProvinces , selected = "Canada")), 
+                                        column(6,  selectInput(inputId ="AssetRS", label="Asset",  choices =ResAssets, selected = "Total residential")
+                                        )))))
+  
+})
+
+
+df_resmap<-reactive({
+  if(input$EstimateRS==EstimatesF[1]){
+    df<-CCStock99
+  }else{
+    if(input$EstimateRS==EstimatesF[2]){
+      df<-CCDep99
+    }else{
+      if(input$EstimateRS==EstimatesF[3]){
+        df<-CCInves99
+      }
+    }
+  }
+  return(df)
+})
+
+df_resshIndus<-reactive({
+  if(input$EstimateRS==EstimatesF[1]){
+    df<-StockShareIndus99
+  }else{
+    if(input$EstimateRS==EstimatesF[2]){
+      df<-DepShareIndus99 
+    }else{
+      if(input$EstimateRS==EstimatesF[3]){
+        df<-InvesShareIndus99 
+      }
+    }
+  }
+  return(df)
+})
+
+df_resshAsset<-reactive({
+  if(input$EstimateRS==EstimatesF[1]){
+    df<-StockShare99
+  }else{
+    if(input$EstimateRS==EstimatesF[2]){
+      df<-DepShare99 
+    }else{
+      if(input$EstimateRS==EstimatesF[3]){
+        df<-InvesShare99 
+      }
+    }
+  }
+  return(df)
+})
+
+
+outputresAssets<-"Total residential"
+outputresProvince<-"Canada"
+
+observeEvent(input$AssetRS,{
+  outputresAssets<<-input$AssetRS
+})
+
+observeEvent(input$ProvRS,{
+  outputresProvince<<-names(ListProvinces)[ListProvinces==input$ProvRS]
+  
+})
+makeReactiveBinding("outputresAssets")
+makeReactiveBinding("outputresProvince")
+
+
+
+output$resMapplot<-renderHighchart({
+  
+  
+  tryCatch({
+    canvasClickFunction <- JS("function(event) {Shiny.onInputChange('canvasClickedRC', [this.name, event.point.name]);}")
+    legendClickFunction <- JS("function(event) {Shiny.onInputChange('legendClickedRC', this.name);}")
+    #source<-"Source: StatCan/NEAD/DCEN"
+    
+    temp_df<-df_resmap()%>%ungroup()%>%filter(year(refper)==input$YearRS,TypeofAssets==outputresAssets)%>%
+      mutate(share=round(valuecurrent/sum(valuecurrent, na.rm=T)*100,1), Year=year(refper)
+      )
+    
+    #qn<-round(quantile(unlist(temp_df[,"valuecurrent"]), probs=seq(0,1,0.1)),0)
+    
+    
+    
+    
+    
+    p<- Mapfunc(data=temp_df, value="valuecurrent", name=outputresAssets,
+    tooltip=list( 
+    pointFormat="{point.name}<br>Year:{point.Year} <br>Current value:${point.value}<br>
+                              Provincial share:{point.share}% <br>2012 constant prices value:${point.valueconstant}<br> Growth rate:{point.grvalue}%"))%>%
+    
+      hc_plotOptions(series = list(stacking = FALSE,
+                                   events = list(click = canvasClickFunction, 
+                                                 legendItemClick = legendClickFunction),animation=list (
+                                                   duration= 100 )))%>%
+      hc_title(text=paste(input$EstimateRS, tolower(outputresAssets),"current price" ),
+               style=gtitlestyle)%>%
+      hc_subtitle(text = paste("(millions of dollars),", input$YearRS),
+                  align="center",
+                  style=gsubtitlestyle)%>%
+      hc_exporting(enabled =FALSE)
+    
+    # p<-p%>%
+    #   hc_add_theme(theme)
+    
+    p
+  },error=function(e){})
+})
+
+
+
+observeEvent(input$canvasClickedRC,{
+  
+  outputresProvince<<- ifelse(input$canvasClickedRC[2]=="QuÃ©bec","Quebec",input$canvasClickedRC[2])
+  #print(outputresProvince)
+ })
+
+
+output$restitlemap<-renderText({
+  paste(input$EstimateRS, tolower(outputresAssets),"current price","(millions of dollars),", input$YearRS )
+})
+#span(textOutput("restitlemap"),  class='Tstyle')
+output$RUiplot1<-renderUI({
+  
+  column(6,div(class="graphclass", highchartOutput("resMapplot", height="100%") ))
+})
+
+
+
+output$RSpieplotAsset<-renderHighchart({
+  
+  tryCatch({
+    canvasClickFunction <- JS("function(event) {Shiny.onInputChange('canvasClickedRAP', [this.name, event.point.name]);}")
+    legendClickFunction<- JS("function(event) {Shiny.onInputChange('legendClickedRAP', this.name);}")
+    # source<-"Source: StatCan/NEAD/DCEN"
+    
+    
+    df<-df_resshAsset()%>%ungroup()%>%filter(year(refper)==input$YearRS,GEO==outputresProvince)
+    #print(head(df))
+    cols<-Listcolorfunc(colorVecpie1,nrow(df))
+    
+    #cols<-substr(cols,0,7)
+    #print(cols)
+    p<-df%>%arrange(share)%>%hchart(type='pie',
+                                    hcaes(x=TypeofAssets,y=share), name=input$EstimateRS, 
+                                    marginRight= 120,
+                                    tooltip=list(valueSuffix=" %", pointFormat='{series.name}: <span>{point.percentage:.1f}%</span>') )%>%
+      hc_plotOptions(series=list(allowPointSelect=TRUE,
+                                 cursor='pointer',
+                                 colors=cols,
+                                 #animation=FALSE,
+                                 innerSize= 10,
+                                 dataLabels=list(enabled=TRUE,
+                                                 # borderWidth=1,
+                                                 #borderColor='#AAA',
+                                                 format='<span style="font-weight:normal;font-size: 11px">{point.name}</span>'
+                                 ),
+                                 point=list(events = list(click = canvasClickFunction,
+                                                          legendItemClick = legendClickFunction)),
+                                 animation=list (
+                                   duration= 1000 ),
+                                 showInLegend=FALSE))%>%
+      #hc_legend(itemStyle=list(fontWeight= 'normal',
+      #                        fontSize='10px'))%>%
+      hc_title(text=paste( input$EstimateRS, "residential share","in current price" ),
+               style=gtitlestyle)%>%
+      hc_subtitle(text=paste("(%),", paste0(outputresProvince, ","), input$YearRS),
+                  align="center",
+                  style=gsubtitlestyle)%>%
+      hc_exporting(enabled = F)
+    p#%>%
+    #hc_add_theme(themepie)
+  },error=function(e){})
+  
+    
+    
+  
+
+})  
+
+
+
+output$restitleshare<-renderText({
+  
+  paste( input$EstimateRS, "residential share","in current price", "(%),", paste0(outputresProvince, ","), input$YearRS )
+})
+
+#span(textOutput("restitleshare"), class='Tstyle')
+output$RUiplot2<-renderUI({
+  
+  column(6,
+      div( class="graphclass",highchartOutput("RSpieplotAsset",height ="100%")
+    
+      ))
+})
+
+observeEvent(input$canvasClickedRAP,{
+  outputresAssets<<-input$canvasClickedRAP[2]
+
+  
+})
+
+observeEvent(input$legendClickedRAP,{
+  outputresAssets<<-input$legendClickedRAP
+
+  
+})
+
+
+output$Restext<-renderUI({
+ 
+    column(12,div(class="Commentdiv",
+    span("Residential program",   style='font-family: Arial;font-size: 20px;  font-weight: bold;'),br(),h4(class='Comment',"Estimates of", strong("investment, demolitions, geometric depreciation and geometric end-year net stock", style="color:#2171B5"), "are available for the components of residential fixed capital investment.
+                  The components include", strong("new housing construction, renovations", style="color:#2171B5"), "made to existing homes and ownership transfer costs."))
+    )
+})
+
+output$ResComment<-renderUI({
+  
+  tryCatch({if(input$EstimateRS==EstimatesF[1]){
+    TextEstimaties<-"net stock"
+  }else{
+    if(input$EstimateRS==EstimatesF[2]){
+      TextEstimaties<-"depreciation"
+    }else{
+      TextEstimaties<-"investment"
+    }
+  }
+    
+    temp_df<-df_resmap()%>%ungroup()%>%
+      filter(year(refper)%in%c(as.numeric(input$YearRS)-1,as.numeric(input$YearRS)), 
+             TypeofAssets==outputresAssets, GEO==outputresProvince)%>%
+      mutate(Year=as.numeric(year(refper)))
+    
+    Acvalue<-unlist(temp_df%>%filter(Year==as.numeric(input$YearRS))%>%select(valuecurrent))
+    Prevalue<-unlist(temp_df%>%filter(Year==as.numeric(input$YearRS)-1)%>%select(valuecurrent))
+    textdownup<-ifelse(Acvalue>Prevalue, "up ", "down ")
+    diffvalue<-formatC( abs(Acvalue-Prevalue),format = "f", big.mark = ",", digits = 0)
+    value<-formatC( Acvalue,format = "f", big.mark = ",", digits = 0)
+    
+    column(12, div(class="Commentdiv",h4(class='Comment',p("In", span(input$YearRS,  style='font-weight: bold;', .noWS = c("after")),", in",span( outputresProvince, style='font-weight: bold;', .noWS = c("after")),",",TextEstimaties, "of", tolower(outputresAssets), "is",
+                                                           span(paste0("$",value, " million"),  style='font-weight: bold;' ),paste0("(", textdownup, "$",diffvalue," million from previous year",").")   ))
+                   
+    ))
+  },error=function(e){})
+
+})
+
+output$RSLinePlot1<-renderHighchart({
+  
+tryCatch({
+  percent<-ifelse(input$ValueRS=="Value","(millions of dollars)","(%)")
+  #if(input$ValueNRS=="Value")
+  
+  tt<-ifelse(input$ValueRS=="Value", "{series.name}<br>2012 constant prices value: ${point.y:,.0f}", "{series.name}<br>Growth rate: {point.y:, .1f} %")
+  ttx<-ifelse(input$ValueRS=="Value", "{value:, .0f}", "{value:, .1f}")
+  
+  ctype=ifelse(input$ValueRS=="Value", 'line','column')
+  df<-df_resmap()%>%ungroup()%>%filter(GEO==outputresProvince,TypeofAssets==outputresAssets)%>%
+    mutate(Year=year(refper))%>%gather(key="Indicator",value="value", valueconstant,grvalue)%>%mutate(Indicator=ifelse(Indicator=="valueconstant","Value","Growth rate"))
+  
+  p<-df%>%filter(Indicator==input$ValueRS)%>%
+    hchart(type=ctype, hcaes(x=Year,y=value), name=outputresAssets)%>%
+    hc_chart(marginRight=140, marginLeft=130)%>%
+    hc_tooltip(pointFormat=tt)%>%
+    hc_plotOptions(
+      series = list(
+        showInLegend = FALSE,
+        marker = list(enabled = FALSE)))%>%
+    hc_xAxis(title=list(text=""), tickInterval=1)%>%
+    hc_yAxis(title=list(text=""),labels = list(format = ttx))%>%
+    hc_title(text=  paste(input$ValueRS, "of",tolower(input$EstimateRS), "of",tolower(outputresAssets),"in 2012 constant prices" )
+             ,style=gtitlestyle)%>%
+    hc_subtitle(text=paste(paste0(percent, ","), outputresProvince ),
+                style=gsubtitlestyle,
+                align="center")%>%
+    hc_exporting(enabled = F)
+  
+  p
+},error=function(e){})
+  
+})
+
+#,title=span(textOutput("resTrendTitle"),  class='Tstyle')
+output$RUiplot3<-renderUI({
+   column(6,
+  
+      div(class="graphclass",
+          highchartOutput("RSLinePlot1",height ="100%"),div(
+         style="position: absolute; left: 2em; bottom: 1.1em;",
+         dropdown(
+           radioGroupButtons(
+             inputId = "ValueRS",
+             label="Indicator",
+             choices=c("Value","Growth rate"),
+             selected="Value",
+             direction="vertical"
+           ),
+           size="sm",
+           #icon=icon("gear",class = "opt"),
+           up=TRUE
+         )
+       ))
+ 
+  )
+  
+  #      fluidPage(
+  #   fluidRow(column(4,offset =0, style='padding:1px; margin:0; font-size: 12px;',
+  #                   selectInput(inputId = "ValueRS", label="Indicator", choices=c("Value","Growth rate")))
+  #   ),
+  #   fluidRow(
+  #     
+  #     fluidRow(column(10,offset=1,hr(),highchartOutput("RSLinePlot1", height="500px")))
+  #   )
+  # )
+})
+
+
+output$resTrendTitle<-renderText({
+  percent<-ifelse(input$ValueRS=="Value","(millions of dollars)","(%)")
+  #if(input$ValueNRS=="Value")
+  paste(input$ValueRS, "of",tolower(input$EstimateRS), "of",tolower(outputresAssets),"in 2012 constant prices",  paste0(percent, ","), outputresProvince  )
+})
+
+
+output$resProvincomTitle<-renderText({
+  paste("Residential",tolower(input$EstimateRS), "Index of", tolower(outputresAssets) )
+})
+#span(textOutput("resProvincomTitle"),  class='Tstyle')
+output$RUiplot4<-renderUI({
+   column(6, 
+        div(class="graphclass",highchartOutput("RSLinePlot2",height ="100%"))
+    )
+ })
+
+
+
+
+output$RSLinePlot2<-renderHighchart({
+
+  tryCatch({
+    
+    refyear<-Eyear-10
+    
+    df_all<-df_resmap()%>%ungroup()%>%filter(TypeofAssets==outputresAssets, GEO%in%Provinces)%>%mutate(Year=as.numeric(year(refper)))%>%select(GEO,Year,valueconstant)
+    df_re<-df_all%>%filter(Year==refyear)%>%select(GEO,valueconstant)%>%rename(valueref=valueconstant)
+    
+    df<-left_join(df_all,df_re, by="GEO")%>%mutate(Index=round(valueconstant/valueref*100,1))%>%
+      select(GEO,Year,Index)%>%spread(key=GEO, value=Index)%>%filter(Year>=refyear & Year<=as.numeric(input$YearRS))
+    
+    p<- highchart()%>%
+      
+      hc_yAxis(title = list(text = ""))%>%
+      hc_xAxis(title = list(text = ""),tickInterval=1)%>%
+      hc_xAxis(categories = df$Year)%>%
+      hc_chart(marginRight=140, marginLeft=100)%>%
+      hc_plotOptions(
+        series = list(
+          showInLegend = FALSE,
+          marker = list(enabled = FALSE),
+          dataLabels = list(
+            enabled = TRUE,
+            align = 'left',
+            #inside=TRUE,
+            verticalAlign = 'middle',
+            x=3,
+            #y=-10,
+            style = list(
+              fontWeight = 'normal',
+              fontSize="11px",
+              fontFamily="Arial"
+            ),
+            overflow = T, #'justify',
+            crop = FALSE,#,
+            
+            formatter = JS( '
+              function() {
+                  if (this.point.x == this.series.data.length-2) {
+             
+                          return this.series.name;
+    
+                    }
+                          return "";
+                }')
+            
+          )
+        )
+      )%>%
+      hc_add_series(name = "Alberta", data = df$`Alberta`)%>%
+      hc_add_series(name = "British Columbia", data = df$`British Columbia`)%>%
+      hc_add_series(name = "Manitoba",data = df$`Manitoba`)%>%
+      hc_add_series(name =  "New Brunswick", data = df$`New Brunswick`)%>%
+      hc_add_series(name = "Newfoundland and Labrador", data = df$`Newfoundland and Labrador`)%>%
+      hc_add_series(name = "Northwest Territories", data = df$`Northwest Territories`)%>%
+      hc_add_series(name = "Nova Scotia",data = df$`Nova Scotia`)%>%
+      hc_add_series(name = "Nunavut", data = df$`Nunavut`)%>%
+      hc_add_series(name =  "Ontario", data = df$`Ontario`)%>%
+      hc_add_series(name = "Prince Edward Island", data = df$`Prince Edward Island`)%>%
+      hc_add_series(name = "Quebec", data = df$`Quebec`)%>%
+      hc_add_series(name =  "Saskatchewan" , data = df$`Saskatchewan`)%>%
+      hc_add_series(name = "Yukon", data = df$`Yukon`)%>%
+      hc_exporting(enabled = FALSE)
+    
+    
+    
+    
+    p%>%
+      hc_title(text =paste("Residential",tolower(input$EstimateRS), "Index of", tolower(outputresAssets) ),
+               style=gtitlestyle
+      )
+  },error=function(e){})
+  
+  
+})
+
+observeEvent(input$RAssetsRS, {
+ # print(input$RAssetsAll)
+  if(input$RAssetsRS=="All Assets"){
+    outputresAssets<<-"Total residential"
+    
+  }else{
+     #if(input$RAssetsRS=="Detail"){
+         if(!is.null(input$canvasClickedRAP)){
+             outputresAssets<<-input$canvasClickedRAP[2]
+            
+         }else{
+          if(!is.null(input$legendClickedRAP)){
+            outputresAssets<<-input$legendClickedRAP
+          }
+             }
+     #}
+   }
+
+})
+
+observeEvent(input$ProvinceRS,{
+  if(input$ProvinceRS=="All Provinces"){
+    outputresProvince<<-"Canada"
+  }else{
+    if(!is.null(input$canvasClickedRC)){
+      outputresProvince<<- ifelse(input$canvasClickedRC[2]=="QuÃÂ©bec","Quebec",input$canvasClickedRC[2])
+    }else{
+      outputresProvince<<-"Canada"
+    }
+  }
+})
+
+
+# output$RDefinition<-renderUI({
+#   box(width=12, title=h3("Definitions"),fluidPage(
+#     div(
+#       h4(p(strong("Investment", style="color:#2171B5")), p("Investment means spending by businesses or governments during a given year for the purposes of construction of structures (airports, roads, etc.), purchases of equipment (locomotives, turbines, etc.) and improvements to existing facilities, all for future use in production during more than one year. In essence, investment is spending for the purposes of production in the future rather than for production today."),
+#          p(strong("Industry", style="color:#2171B5")),p(span("An industry is a group of businesses that are engaged in similar production activities, such as the manufacturing industry or the transportation services industry. There are many businesses in Canada and they are classified into industry groups by the"), a("North American Industry Classification System (NAICS).", target='_blank', href='https://www23.statcan.gc.ca/imdb/p3VD.pl?Function=getVD&TVD=1181553')),
+#          p(strong("Asset", style="color:#2171B5")), p(span("An asset is durable property, such as a pipeline, a school or a sewer system, that can be used in current and future production activities. There are many kinds of assets and they are classified into asset groups by the"), a("North American Product Classification System (NAPCS)", target='_blank', href='https://www.statcan.gc.ca/eng/subjects/standard/napcs/2017/index'),"and", a("Variant of NAPCS Canada 2012 Version 1.1 - Capital expenditures on non-residential construction.", target='_blank', href='https://www23.statcan.gc.ca/imdb/p3VD.pl?Function=getVD&TVD=202695')),
+#          p(strong("Value of depreciation", style="color:#2171B5")), p("In Canada, a geometric rate is used to depreciate residential stock. This single rate is set
+# at 2% and does not change with the category of dwelling. Depreciation is calculated first, based on the existing stock and the new investment. On average, new investment is assumed to be placed into service at mid-year, so depreciation on new investment is half of the investment multiplied by the depreciation rate. 
+# ")
+#          
+#          ,style="font-family:Arial")
+#     )
+#   ))
+# })
+# 
+# output$RProduct<-renderUI({
+#   box(width=12,title=h3("Products"), fluidPage(
+#     div(h4(p("For more information, please consult ",a("The Daily", target='_blank',href='https://www150.statcan.gc.ca/n1/daily-quotidien/190411/dq190411a-eng.htm')), p("Table",
+#                                                              a("36-10-0096-01,", target='_blank', href='https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610009601'),
+#                                                               a("36-10-0098-01,", target='_blank', href='https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610009801'),
+#                                                               a("36-10-0099-01,", target='_blank', href='https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610009901'),"and",
+#                                                               a("34-10-0166-01", target='_blank', href='https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410016601'), "are now avaible."),style="font-family:Arial"))
+#   ))
+# })
+# 
+# output$Ricon<-renderUI({
+#  box(width=12,fluidPage(img(src="pbi_fib_en.png",style="vertical-align:bottom",  height="100%", width="100%")))
+# })

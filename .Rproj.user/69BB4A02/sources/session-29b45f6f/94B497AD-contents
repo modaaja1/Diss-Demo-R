@@ -1,0 +1,11 @@
+options(encoding = 'UTF-8')
+
+server<-function(session,input,output){
+  
+ source(file.path("NonRes.R"), local=TRUE)$value
+  
+ source(file.path("Res.R"), local=TRUE)$value
+  
+  source(file.path("AllNonRes.R"), local=TRUE)$value
+}
+

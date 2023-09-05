@@ -1,0 +1,644 @@
+rm(list=ls())
+source("dependencies.R")
+source("my_hcmap.R")
+source("get_cansim_mod_func.R")
+
+#----------------------------------- Graph style--------------
+gtitlestyle<-list(fontFamily="Arial", fontSize="14px")
+gsubtitlestyle<-list(fontFamily="Arial", fontSize="13px")
+
+# CborderColor = "#2171B5"
+# CborderRadius = 10
+# CborderWidth = 2
+# CbackgroundColor="#FFFFFF"
+#--------------------------Functions----------------------------
+
+
+convertMenuItem <- function(mi,tabName) {
+  mi$children[[1]]$attribs['data-toggle']="tab"
+  mi$children[[1]]$attribs['data-value'] = tabName
+  if(length(mi$attribs$class)>0 && mi$attribs$class=="treeview"){
+    mi$attribs$class=NULL
+  }
+  mi
+}
+
+colorVec<-cbind(Low=c(158/255,202/255,225/255),High=c(33/255,113/255,181/255))
+colorVecpie<-cbind(Low=c(255/255,247/255,251/255),High=c(2/255,56/255,88/255))
+colorVecpie1<-cbind(Low=c(222/255,235/255,247/255),High=c(49/255,130/255,189/255))
+
+Listcolorfunc<-function(colorVec,number){
+  col<-sapply(1:nrow(colorVec), function(x){
+    seq(colorVec[x,1],colorVec[x,2], length.out=number )
+  })
+  col<-sapply(1:nrow(col), function(x){
+    rgb(col[x,1], col[x,2],col[x,3])
+  })
+  col
+}
+
+
+so_formatter<-function(x){
+  dplyr:: case_when(
+    x<1e3~as.character(round(x,1)),
+    x<1e6~paste0(as.character(round(x/1e3,1)),"K"),
+    x<1e9~paste0(as.character(round(x/1e6,1)),"M")
+  )
+}
+
+grratefunc<-function(x){
+  lx<-dplyr::lag(x)
+  return(100*(x-lx)/lx)
+}
+
+getLevels<-function(x){
+  if(is.factor(x)){
+    levels(x)
+  }else{
+    sort(unique(x))
+  }
+}
+
+accumulate_by<-function(dat,var){
+  var<-lazyeval::f_eval(var,dat)
+  lvls<-getLevels(var)
+  dats<-lapply(seq_along(lvls), function(x){
+    cbind(dat[var%in%lvls[seq(1,x)],], frame=lvls[[x]])
+  })
+  dplyr::bind_rows(dats)
+}
+
+weightfunc<-function(x,y) round(x/y*100,1)
+
+
+combindfunc<-function(Resdf,NResdf){
+  AllResdf<-Resdf%>%ungroup()%>%select(GEO,Prices,TypeofAssets,Estimates, refper, value)%>%filter(TypeofAssets=="Total residential")
+  AllNResdf<-NResdf%>%ungroup()%>%filter(TypeofAssets=="Total non-residential",Industries=="Total all industries")%>%
+    select(GEO,Prices,TypeofAssets,Estimates, refper, value)
+  
+  Alldf<-bind_rows(  AllResdf, AllNResdf)%>%filter(TypeofAssets%in%c("Total residential","Total non-residential" ))%>%group_by(GEO,Prices,Estimates,refper)%>%
+    summarise(value=sum(value))%>%ungroup()%>%mutate(TypeofAssets="All assets")
+  
+  dfResNRes<-bind_rows(Alldf,AllResdf%>%ungroup()%>%select(GEO,Prices,TypeofAssets,Estimates, refper, value),
+                       AllNResdf%>%ungroup()%>%select(GEO,Prices,TypeofAssets,Estimates, refper, value))
+  
+  return(dfResNRes)
+}
+
+Mapfunc<-function(data,value, name,tooltip=NULL){
+  #print(qn)
+  p<-my_hcmap(data=data,
+              value=value, 
+              joinBy=c("woe-name", "Province"),
+              name=name,
+              borderWidth =1,
+              nullColor = "#d3d3d3",
+              backgroundColor="white",
+              borderColor='white',
+              
+              tooltip=tooltip
+              )%>%
+    hc_colorAxis(
+      # minColor="#fee8c8",maxColor="#e34a33",
+      stops = color_stops(10, colors =scales::viridis_pal(option = "D")(10)),
+     #dataClasses=color_classes(breaks = c(), colors=scales::viridis_pal(option = "D")(length(qn))),
+       #stops=stops,
+      startOnTick = FALSE,
+      endOnTick =  FALSE
+
+    )%>%
+    hc_responsive(
+      rules = list(
+        list(
+          condition = list(minWidth  = 10, maxWidth=20),
+          chartOptions = list(legend = list(align = "right", 
+                                            verticalAlign = "bottom",
+                                            borderWidth= NULL,
+                                            floating=FALSE,
+                                            backgroundColor= 'white',
+                                            itemStyle=list(fontSize='1px')))
+        )
+      )
+    )%>%
+    hc_mapNavigation(
+      enabled = TRUE,
+      enableButtons=FALSE
+    )%>%hc_credits(enabled=FALSE)
+  p
+}
+
+theme <- hc_theme(colors = c("#47475c", "#61BC7B", 
+                             "#508CC8", "#F49952", "#9C9EDB", "#6699a1"), 
+                  chart = list(style = list(fontFamily = "Arial", 
+                                            color = "#666666")), 
+                  title = list(align = "center", style = list(fontFamily = "Arial",fontSize = "14px")),
+                  subtitle = list(align = "left",  style = list(fontFamily = "Arial", fontSize = "10px")), 
+                  caption = list(style = list(fontFamily = "Arial", fontSize = "7px")),
+                  credits = list(style = list(fontFamily = "Arial",fontSize = "7px")),
+                  legend = list(align = "right", verticalAlign = "bottom"), 
+                  xAxis = list(gridLineWidth = 1,gridLineColor = "#F3F3F3", lineColor = "#F3F3F3", minorGridLineColor = "#F3F3F3", tickColor = "#F3F3F3",tickWidth = 1),
+                  yAxis = list(gridLineColor = "#F3F3F3", lineColor = "#F3F3F3", minorGridLineColor = "#F3F3F3", tickColor = "#F3F3F3", tickWidth = 1), 
+                  plotOptions = list(line = list(marker = list(enabled = FALSE)), 
+                                     spline = list(marker = list(enabled = FALSE)),
+                                     area = list(marker = list(enabled = FALSE)),
+                                     areaspline = list(marker = list(enabled = FALSE)), 
+                                     arearange = list(marker = list(enabled = FALSE)), 
+                                     bubble = list(maxSize = "10%")))
+
+
+themepie <- hc_theme(colors = c("#47475c", "#61BC7B", 
+                                "#508CC8", "#F49952", "#9C9EDB", "#6699a1"), 
+                     chart = list(style = list(fontFamily = "Roboto", 
+                                               color = "#666666")), 
+                     title = list(align = "center", style = list(fontFamily = "serif",fontSize = "13px")),
+                     subtitle = list(align = "left",  style = list(fontFamily = "serif", fontSize = "7px")), 
+                     caption = list(style = list(fontFamily = "serif", fontSize = "7px")),
+                     credits = list(style = list(fontFamily = "Roboto",fontSize = "7px")),
+                     legend = list(align = "right", verticalAlign = "bottom",
+                                   borderWidth= 0,
+                                   width= 400,
+                                   itemWidth= 200), 
+                     xAxis = list(gridLineWidth = 1,gridLineColor = "#F3F3F3", lineColor = "#F3F3F3", minorGridLineColor = "#F3F3F3", tickColor = "#F3F3F3",tickWidth = 1),
+                     yAxis = list(gridLineColor = "#F3F3F3", lineColor = "#F3F3F3", minorGridLineColor = "#F3F3F3", tickColor = "#F3F3F3", tickWidth = 1), 
+                     plotOptions = list(line = list(marker = list(enabled = FALSE)), 
+                                        spline = list(marker = list(enabled = FALSE)),
+                                        area = list(marker = list(enabled = FALSE)),
+                                        areaspline = list(marker = list(enabled = FALSE)), 
+                                        arearange = list(marker = list(enabled = FALSE)), 
+                                        bubble = list(maxSize = "10%")))
+
+
+
+HeadStyleList<-list(
+  textAlign = "left",
+  fontSize = "11px",
+  lineHeight = "12px",
+  textTransform = "uppercase",
+  color = "#0c0c0c",
+  fontWeight = "600",
+  borderBottom = "1px solid #e9edf0",
+  paddingBottom = "1px",
+  verticalAlign = "bottom",
+  fontFamily = "Econ Sans Cnd"
+)
+ColStyleList<-list(
+  fontSize = "10px",
+  verticalAlign = "center",
+  align = "left"     )
+
+stops <- data.frame(
+  q = 0:5 / 5,
+  c = c("#ffffcc",
+        "#c7e9b4",
+        "#7fcdbb",
+        "#41b6c4",
+        "#2c7fb8",
+        "#253494"),
+  stringsAsFactors = FALSE
+)
+
+
+#-------- Language format ---------------------------------------
+lang<-getOption("highcharter.lang")
+lang$decimalPoint<-"."
+lang$thousandsSep<-","
+#lang$numericSymbols<-c("k","M")
+lang$drillUpText<-"<span style='font-size:11px; color:blue'> Back to</span> <br> <span style='font-size:11px; color:blue'>{series.name}</span>"
+options(highcharter.lang = lang)
+
+#-------- List of parameters -----------------
+
+# vect_3410016601<-read.xlsx("./Data/VectorList.xlsx",sheet="3410016601")
+# vect_3610009601<-read.xlsx("./Data/VectorList.xlsx",sheet="3610009601")
+# vect_3610009801<-read.xlsx("./Data/VectorList.xlsx",sheet="3610009801")
+# vect_3610009901<-read.xlsx("./Data/VectorList.xlsx",sheet="3610009901")
+
+AllSectors<-read.xlsx("./Data/AllSectorsIndus.xlsx")
+Provinces<- c("0"="Alberta","1"="British Columbia","2"="Manitoba", "3"= "New Brunswick",            
+              "4"="Newfoundland and Labrador", "5"="Northwest Territories", "6"=   "Nova Scotia", "7"=             "Nunavut",                  
+              "8"= "Ontario"         ,"9"=          "Prince Edward Island" ,"10"=     "Quebec"  ,"11"=  "Saskatchewan",             
+              "12"="Yukon") 
+
+ListProvinces=c("Canada"="-1","Alberta"="0", "British Columbia"="1","Manitoba"="2", "New Brunswick"="3",
+                "Newfoundland and Labrador"="4","Northwest Territories"="5", "Nova Scotia"="6",
+                "Nunavut"="7","Ontario"="8","Prince Edward Island"="9","Quebec"="10",
+                "Saskatchewan"="11","Yukon"="12" )
+
+Sectors<-c("Total all industries", "Agriculture, forestry, fishing and hunting",                         
+           "Mining, quarrying and oil and gas extraction",
+           "Utilities", "Construction",  "Manufacturing","Wholesale trade",                                                      
+           "Retail trade", "Transportation and warehousing",  "Information and cultural industries",                                 
+           "Finance, insurance, real estate, rental and leasing",  "Professional, scientific and technical services"                      
+           ,"Administrative and support, waste management and remediation services",
+           "Educational services",
+           "Health care and social assistance",                                    
+           "Arts, entertainment and recreation" ,                                  
+           "Accomodation and food services" ,                                      
+           "Other services (except public administration)" ,                       
+           "Non-profit institutions serving households" ,                          
+           "Government sector") 
+EstimatesF<-c("Geometric end-year net stock","Geometric depreciation","Investment")
+
+VTypeofAssets<-  c("Non Residential Assets","Residential Assets","All Assets")
+NresAssets<-c("Total non-residential", "Non-residential buildings" ,"Engineering construction" ,     
+              "Machinery and equipment" , "Intellectual property products")
+ResAssets<-c("Total residential", "New construction" ,   
+             "Renovations","Ownership transfer costs")
+AllAssets<-c("All assets", "Total residential",
+             "Total non-residential" )
+
+TabLabel99<-c( "New construction","Renovations","Ownership transfer costs","Total residential" )
+
+AllSectlabel<-unique(AllSectors$Sectors)
+
+AllAssetsList<-c("Total non-residential",
+                 "Non-residential buildings",
+                 "Engineering construction",
+                 "Machinery and equipment",
+                 "Textile products, clothing, and products of leather and similar materials",
+                 "Wood products",
+                 "Plastic and rubber products",
+                 "Non-metallic mineral products",
+                 "Fabricated metallic products",
+                 "Industrial machinery",
+                 "Computer and electronic products",
+                 "Electrical equipment, appliances and components",
+                 "Transportation equipment",
+                 "Furniture and related products",
+                 "Other manufactured products and custom work",
+                 "Intellectual property products",
+                 "Mineral exploration and evaluation",
+                 "Research and development",
+                 "Software")
+#--------------------- Data loading----------
+
+
+#Syear<-lubridate::year(Sys.Date())-22
+#Eyear<-lubridate::year(Sys.Date())-1
+
+
+
+Syear<-lubridate::year(Sys.Date())-12
+Eyear<-lubridate::year(Sys.Date())-1
+
+
+
+# Table 3610009601
+col96<-c("REF_DATE", "GEO","Prices","Industry","Flows and stocks","Assets","VALUE")
+col98<-c("REF_DATE", "GEO","Prices","Flows and stocks","Assets","VALUE")
+col99<-c("REF_DATE", "GEO","Prices","Flows and stocks","Assets","VALUE")
+col66<-c("REF_DATE", "GEO","Price","Age","Industry","Assets","VALUE")
+
+if(lubridate::month(Sys.Date())==11){
+  vect_3410016601<-read.xlsx("./Data/VectorList.xlsx",sheet="3410016601")
+  vect_3610009601<-read.xlsx("./Data/VectorList.xlsx",sheet="3610009601")
+  vect_3610009801<-read.xlsx("./Data/VectorList.xlsx",sheet="3610009801")
+  vect_3610009901<-read.xlsx("./Data/VectorList.xlsx",sheet="3610009901")
+  # Table 3610009601
+  dataF96<-get_cansim_two(cansimTableNumber="3610009601", language = "english", refresh = TRUE, 
+                          timeout = 200, factors = FALSE, default_month = "07", 
+                          default_day = "01", start_year=Syear, end_year=Eyear, VECTORLIST=vect_3610009601$VECTOR)%>%
+    select(all_of(col96))
+  
+  colnames(dataF96)<-c("refper","GEO","Prices","Industries","Estimates","TypeofAssets","value")
+  dataF96$GEO<-as.character(dataF96$GEO)
+  dataF96$Prices<-as.character(dataF96$Prices)
+  dataF96$Industries<-as.character(dataF96$Industries)
+  dataF96$Estimates<-as.character(dataF96$Estimates)
+  dataF96$TypeofAssets<-as.character(dataF96$TypeofAssets)
+  dataF96<-dataF96%>%mutate(refper=as.numeric(refper))
+  
+  # Table 3610009801
+  dataF98<-get_cansim_two(cansimTableNumber="3610009801", language = "english", refresh = TRUE, 
+                          timeout = 200, factors = FALSE, default_month = "07", 
+                          default_day = "01", start_year=Syear, end_year=Eyear, VECTORLIST=vect_3610009801$VECTOR)%>%
+    select(all_of(col98))
+  colnames(dataF98)<-c("refper","GEO","Prices","Estimates","TypeofAssets","value")
+  
+  
+  dataF98$GEO<-as.character(dataF98$GEO)
+  dataF98$Prices<-as.character(dataF98$Prices)
+  # dataF98$Sectors<-as.character(dataF98$Sectors)
+  dataF98$Estimates<-as.character(dataF98$Estimates)
+  dataF98$TypeofAssets<-as.character(dataF98$TypeofAssets)
+  dataF98<-dataF98%>%mutate(refper=as.numeric(refper))
+  
+  # Table 3610009901
+  dataF99<-get_cansim_two(cansimTableNumber="3610009901", language = "english", refresh = TRUE, 
+                          timeout = 200, factors = FALSE, default_month = "07", 
+                          default_day = "01", start_year=Syear, end_year=Eyear, VECTORLIST=vect_3610009901$VECTOR)%>%
+    select(all_of(col99))
+  colnames(dataF99)<-c("refper","GEO","Prices","Estimates","TypeofAssets","value")
+  
+  dataF99$GEO<-as.character(dataF99$GEO)
+  dataF99$Prices<-as.character(dataF99$Prices)
+  dataF99$Estimates<-as.character(dataF99$Estimates)
+  dataF99$TypeofAssets<-as.character(dataF99$TypeofAssets)
+  
+  dataF99<-dataF99%>%mutate(refper=as.numeric(refper))
+  # Table 3410016601  
+  dataF66<-get_cansim_two(cansimTableNumber="3410016601", language = "english", refresh = TRUE, 
+                          timeout = 200, factors = FALSE, default_month = "07", 
+                          default_day = "01", start_year=Syear, end_year=Eyear, VECTORLIST=vect_3410016601$VECTOR)%>%
+    select(all_of(col66))
+  colnames(dataF66)<-c("refper","GEO","Prices","Estimates","Industries","TypeofAssets","value")
+  
+  dataF66$GEO<-as.character(dataF66$GEO)
+  dataF66$Prices<-as.character(dataF66$Prices)
+  dataF66$Industries<-as.character(dataF66$Industries)
+  dataF66$Estimates<-as.character(dataF66$Estimates)
+  dataF66$TypeofAssets<-as.character(dataF66$TypeofAssets)
+  
+  dataF66<-dataF66%>%mutate(refper=as.numeric(refper))
+  
+  saveRDS(dataF66, file="./Data/dataF66.rds")
+  saveRDS(dataF96, file="./Data/dataF96.rds")
+  saveRDS(dataF98, file="./Data/dataF98.rds")
+  saveRDS(dataF99, file="./Data/dataF99.rds")
+  
+  
+  
+  
+  
+}else{
+  
+  dataF66<- readRDS(file="./Data/dataF66.rds")
+  dataF96<-readRDS(file="./Data/dataF96.rds")
+  dataF98<-readRDS(file="./Data/dataF98.rds")
+  dataF99<-readRDS(file="./Data/dataF99.rds")
+  
+  
+  
+}
+
+
+
+#----------------------------------------------------------------------------
+dataF99<-dataF99%>%mutate(refper=as.Date(paste0(refper,"-01-01")))
+dataF98<-dataF98%>%mutate(refper=as.Date(paste0(refper,"-01-01")))
+dataF96<-dataF96%>%mutate(refper=as.Date(paste0(refper,"-01-01")))
+dataF66<-dataF66%>%mutate(refper=as.Date(paste0(refper,"-01-01")))
+#---------  Year Parameterisation----------
+
+Dyear<-(max(max(year(dataF66$refper)),max(year(dataF96$refper)),max(year(dataF98$refper)),max(year(dataF99$refper)) ))
+
+# Set Eyear equal to Dyear 
+#------------------------ Data processing ----------------
+
+
+data66F<-dataF66%>%filter(Industries==Sectors[1])%>%mutate(TypeofAssets= ifelse(TypeofAssets== "Engineering","Engineering construction",
+                                                                                ifelse(TypeofAssets== "Building", "Non-residential buildings",TypeofAssets)
+                                                           ))
+dataF66All<-inner_join(data66F%>%filter(TypeofAssets%in%AllAssetsList )%>%select(GEO,Prices,TypeofAssets, Estimates,refper,value),
+                       AllSectors, by="TypeofAssets")
+
+
+dataF98F<-inner_join(dataF98%>%ungroup()%>%filter(TypeofAssets%in%AllAssetsList)%>%select(GEO,Prices,TypeofAssets, Estimates,refper,value),
+                     AllSectors, by="TypeofAssets")
+
+
+
+dataF96<-dataF96%>%ungroup()%>%filter(Industries%in%Sectors, GEO%in%names(ListProvinces), TypeofAssets%in%NresAssets )%>%
+          group_by(GEO,Prices,Industries,TypeofAssets,Estimates)
+
+dataF99<-dataF99%>%filter(GEO%in%names(ListProvinces) )%>%group_by(GEO,Prices,TypeofAssets,Estimates)
+
+dataF66<-dataF66%>%
+               mutate(TypeofAssets=ifelse(TypeofAssets=="Engineering",
+                                              "Engineering construction",
+                                              ifelse(TypeofAssets=="Building",
+                                                     "Non-residential buildings",TypeofAssets)))%>%
+              filter(Industries%in%Sectors  & TypeofAssets%in%NresAssets, GEO%in%names(ListProvinces) )
+
+
+
+NRSLabel<-dataF96%>%group_by(Prices,Industries,TypeofAssets,Estimates)%>%count()
+RSLabel<-dataF99%>%group_by(Prices,TypeofAssets,Estimates)%>%count()
+SLLabel<-dataF66%>%group_by(Prices,Industries,TypeofAssets,Estimates)%>%count()
+ServiceYear<-unique(year(dataF66$refper))
+AllSelect<-list("All"=c("All assets","Total residential", "Total non-residential"), 
+                "Residential"=unique(RSLabel$TypeofAssets),
+                "Non Residential"=unique(NRSLabel$TypeofAssets))
+
+
+#--------------------------- Preparation for the DV ----------------------------------
+
+Stock98<-dataF98F%>%filter(Estimates==EstimatesF[1], Prices=="Current prices")%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+Dep98<-dataF98F%>%filter(Estimates==EstimatesF[2], Prices=="Current prices")%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+Inves98<-dataF98F%>%filter(Estimates==EstimatesF[3], Prices=="Current prices")%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+
+#------------------------------
+Stock99<-dataF99%>%filter(Estimates==EstimatesF[1], Prices=="Current prices")%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+Dep99<-dataF99%>%filter(Estimates==EstimatesF[2], Prices=="Current prices")%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+Inves99<-dataF99%>%filter(Estimates==EstimatesF[3], Prices=="Current prices")%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+Stock96<-dataF96%>%filter(Estimates==EstimatesF[1], Prices=="Current prices")%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+Dep96<-dataF96%>%filter(Estimates==EstimatesF[2], Prices=="Current prices")%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+Inves96<-dataF96%>%filter(Estimates==EstimatesF[3], Prices=="Current prices")%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+CStock99<-dataF99%>%filter(Estimates==EstimatesF[1], Prices=="2012 constant prices")%>%
+  ungroup()%>%select(GEO,TypeofAssets,refper,value)%>%
+  group_by(GEO,TypeofAssets)%>%mutate(grvalue=round(grratefunc(value),1))%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+CDep99<-dataF99%>%filter(Estimates==EstimatesF[2], Prices=="2012 constant prices")%>%
+  ungroup()%>%select(GEO,TypeofAssets,refper,value)%>%
+  group_by(GEO,TypeofAssets)%>%mutate(grvalue=round(grratefunc(value),1))%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+CInves99<-dataF99%>%filter(Estimates==EstimatesF[3], Prices=="2012 constant prices")%>%
+  ungroup()%>%select(GEO,TypeofAssets,refper,value)%>%
+  group_by(GEO,TypeofAssets)%>%mutate(grvalue=round(grratefunc(value),1))%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+CStock96<-dataF96%>%filter(Estimates==EstimatesF[1], Prices=="2012 constant prices")%>%
+  ungroup()%>%select(GEO,Industries,TypeofAssets,refper,value)%>%
+  group_by(GEO,Industries,TypeofAssets)%>%mutate(grvalue=round(grratefunc(value),1))%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+CDep96<-dataF96%>%filter(Estimates==EstimatesF[2], Prices=="2012 constant prices")%>%
+  ungroup()%>%select(GEO,Industries,TypeofAssets,refper,value)%>%
+  group_by(GEO,Industries,TypeofAssets)%>%mutate(grvalue=round(grratefunc(value),1))%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+CInves96<-dataF96%>%filter(Estimates==EstimatesF[3], Prices=="2012 constant prices")%>%
+  ungroup()%>%select(GEO,Industries,TypeofAssets,refper,value)%>%
+  group_by(GEO,Industries,TypeofAssets)%>%mutate(grvalue=round(grratefunc(value),1))%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+CStock98<-dataF98F%>%filter(Estimates==EstimatesF[1], Prices=="2012 constant prices")%>%
+  ungroup()%>%select(GEO,Sectors,TypeofAssets,refper,value)%>%
+  group_by(GEO,TypeofAssets)%>%mutate(grvalue=round(grratefunc(value),1))%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+CDep98<-dataF98F%>%filter(Estimates==EstimatesF[2], Prices=="2012 constant prices")%>%
+  ungroup()%>%select(GEO,Sectors,TypeofAssets,refper,value)%>%
+  group_by(GEO,TypeofAssets)%>%mutate(grvalue=round(grratefunc(value),1))%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+CInves98<-dataF98F%>%filter(Estimates==EstimatesF[3], Prices=="2012 constant prices")%>%
+  ungroup()%>%select(GEO,Sectors,TypeofAssets,refper,value)%>%
+  group_by(GEO,TypeofAssets)%>%mutate(grvalue=round(grratefunc(value),1))%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+
+
+
+dataFshareIndus96<-dataF96%>%filter( Prices=="Current prices"   &
+                                  Estimates%in%EstimatesF)%>%
+  ungroup()%>%select(-Prices)%>%group_by(GEO,Industries,Estimates,refper)%>%summarise(value=sum(value))%>%
+  ungroup()%>%spread(key=Industries, value=value)%>%group_by(GEO,Estimates,refper)%>%
+  mutate(across(`Accomodation and food services`:`Wholesale trade` , ~weightfunc(.,y=`Total all industries`)))%>%
+  select(-`Total all industries`)%>%filter( year(refper)>=Syear)
+
+
+dataFshareIndus98<-dataF98F%>%filter( Prices=="Current prices"   &
+                                       Estimates%in%EstimatesF)%>%
+  ungroup()%>%select(-Prices)%>%group_by(GEO,Sectors,Estimates,refper)%>%summarise(value=sum(value))%>%
+  ungroup()%>%spread(key=Sectors, value=value)%>%group_by(GEO,Estimates,refper)%>%
+  mutate(across(`Engineering construction`:`Non-residential buildings` , ~weightfunc(.,y=`Total non-residential`)))%>%
+  select(-`Total non-residential`)%>%filter( year(refper)>=Syear)%>%gather(key="Sectors", value="share",`Engineering construction`:`Non-residential buildings`)
+
+
+dataFshare96<-dataF96%>%filter( Prices=="Current prices"   &
+                                  Estimates%in%EstimatesF)%>%
+  ungroup()%>%select(-Prices)%>%spread(key=TypeofAssets, value=value)%>%group_by(GEO,Industries,Estimates,refper)%>%
+  mutate(across(`Engineering construction`:`Non-residential buildings` , ~weightfunc(., y=`Total non-residential`)))%>%
+  select(GEO, Industries,refper, Estimates, `Engineering construction`:`Non-residential buildings` )%>%
+  gather(key="TypeofAssets", value="share", `Engineering construction`:`Non-residential buildings` )%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+dataFshare99<-dataF99%>%filter(Prices=="Current prices"   &
+                                 Estimates%in%EstimatesF)%>%
+  ungroup()%>%
+  select(-Prices)%>%
+  spread(key=TypeofAssets, value=value)%>%group_by(GEO,Estimates,refper)%>%
+  mutate(across(`New construction`:`Renovations` , ~weightfunc(., y=`Total residential`)))%>%
+  select(GEO,refper, Estimates, `New construction`:`Renovations` )%>%
+  gather(key="TypeofAssets", value="share", `New construction`:`Renovations`)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+
+DepShare99<-dataFshare99%>%filter(Estimates==EstimatesF[2])%>%
+  ungroup()%>%select(-Estimates)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+InvesShare99<-dataFshare99%>%filter(Estimates==EstimatesF[3])%>%ungroup()%>%select(-Estimates)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+StockShare99<-dataFshare99%>%filter(Estimates==EstimatesF[1])%>%ungroup()%>%select(-Estimates)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+DepShareIndus96<-dataFshareIndus96%>%filter(Estimates==EstimatesF[2])%>%ungroup()%>%select(-Estimates)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+InvesShareIndus96<-dataFshareIndus96%>%filter(Estimates==EstimatesF[3])%>%ungroup()%>%select(-Estimates)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+StockShareIndus96<-dataFshareIndus96%>%filter(Estimates==EstimatesF[1])%>%ungroup()%>%select(-Estimates)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+
+DepShareIndus98<-dataFshareIndus98%>%filter(Estimates==EstimatesF[2])%>%ungroup()%>%select(-Estimates)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+InvesShareIndus98<-dataFshareIndus98%>%filter(Estimates==EstimatesF[3])%>%ungroup()%>%select(-Estimates)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+StockShareIndus98<-dataFshareIndus98%>%filter(Estimates==EstimatesF[1])%>%ungroup()%>%select(-Estimates)%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%filter( year(refper)>=Syear)
+
+
+
+DepShare96<-dataFshare96%>%filter(Estimates==EstimatesF[2])%>%ungroup()%>%select(-Estimates)%>%mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))
+
+InvesShare96<-dataFshare96%>%filter(Estimates==EstimatesF[3])%>%ungroup()%>%select(-Estimates)%>%mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))
+
+StockShare96<-dataFshare96%>%filter(Estimates==EstimatesF[1])%>%ungroup()%>%select(-Estimates)%>%mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))
+
+Vector98<-unique(dataF98F$TypeofAssets)
+
+dataFshare98<-inner_join(dataF98F%>%filter( Prices=="Current prices"    &
+                                              Estimates%in%Estimates)%>%
+                           ungroup()%>%select(-Prices,-Sectors)%>%spread(key=TypeofAssets, value=value)%>%group_by(GEO,Estimates,refper)%>%
+                           mutate(across(c(`Non-residential buildings`:`Software`) , ~weightfunc(., y=`Total non-residential`)))%>%
+                           select(!`Total non-residential`)%>%
+                           gather(key="TypeofAssets", value="share", Vector98[Vector98!="Total non-residential"])%>%
+                           filter( year(refper)>=Syear),AllSectors, by="TypeofAssets" )%>%
+  mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))%>%ungroup()
+
+
+DepShare98<-dataFshare98%>%filter(Estimates==EstimatesF[2])%>%ungroup()%>%select(-Estimates)%>%mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))
+
+InvesShare98<-dataFshare98%>%filter(Estimates==EstimatesF[3])%>%ungroup()%>%select(-Estimates)%>%mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))
+
+StockShare98<-dataFshare98%>%filter(Estimates==EstimatesF[1])%>%ungroup()%>%select(-Estimates)%>%mutate(Province=ifelse(GEO=="Quebec","QuÃ©bec",GEO))
+
+#unique(dataFshare98$TypeofAssets)
+
+#------------------------
+
+
+
+CCStock96<-inner_join(Stock96%>%ungroup()%>%select(GEO,Province,Industries,TypeofAssets,refper,value)%>%rename(valuecurrent=value),
+           CStock96%>%ungroup()%>%select(GEO,Province,Industries,TypeofAssets,refper,value, grvalue)%>%rename(valueconstant=value),
+           by=c("GEO","Province","Industries","TypeofAssets","refper"))%>%filter( year(refper)>=Syear)
+
+CCDep96<-inner_join(Dep96%>%ungroup()%>%select(GEO,Province,Industries,TypeofAssets,refper,value)%>%rename(valuecurrent=value),
+                      CDep96%>%ungroup()%>%select(GEO,Province,Industries,TypeofAssets,refper,value, grvalue)%>%rename(valueconstant=value),
+                      by=c("GEO","Province","Industries","TypeofAssets","refper"))%>%filter( year(refper)>=Syear)
+
+CCInves96<-inner_join(Inves96%>%ungroup()%>%select(GEO,Province,Industries,TypeofAssets,refper,value)%>%rename(valuecurrent=value),
+                      CInves96%>%ungroup()%>%select(GEO,Province,Industries,TypeofAssets,refper,value, grvalue)%>%rename(valueconstant=value),
+                      by=c("GEO","Province","Industries","TypeofAssets","refper"))%>%filter( year(refper)>=Syear)
+
+
+CCStock99<-inner_join(Stock99%>%ungroup()%>%select(GEO,Province,TypeofAssets,refper,value)%>%rename(valuecurrent=value),
+                      CStock99%>%ungroup()%>%select(GEO,Province,TypeofAssets,refper,value, grvalue)%>%rename(valueconstant=value),
+                      by=c("GEO","Province","TypeofAssets","refper"))%>%filter( year(refper)>=Syear)
+
+CCDep99<-inner_join(Dep99%>%ungroup()%>%select(GEO,Province,TypeofAssets,refper,value)%>%rename(valuecurrent=value),
+                    CDep99%>%ungroup()%>%select(GEO,Province,TypeofAssets,refper,value, grvalue)%>%rename(valueconstant=value),
+                    by=c("GEO","Province","TypeofAssets","refper"))%>%filter( year(refper)>=Syear)
+
+CCInves99<-inner_join(Inves99%>%ungroup()%>%select(GEO,Province,TypeofAssets,refper,value)%>%rename(valuecurrent=value),
+                      CInves99%>%ungroup()%>%select(GEO,Province,TypeofAssets,refper,value, grvalue)%>%rename(valueconstant=value),
+                      by=c("GEO","Province","TypeofAssets","refper"))%>%filter( year(refper)>=Syear)
+
+
+CCStock98<-inner_join(Stock98%>%ungroup()%>%select(GEO,Province,Sectors,TypeofAssets,refper,value)%>%rename(valuecurrent=value),
+                      CStock98%>%ungroup()%>%select(GEO,Province,Sectors,TypeofAssets,refper,value, grvalue)%>%rename(valueconstant=value),
+                      by=c("GEO","Province","Sectors","TypeofAssets","refper"))%>%filter( year(refper)>=Syear)
+
+CCDep98<-inner_join(Dep98%>%ungroup()%>%select(GEO,Province,Sectors,TypeofAssets,refper,value)%>%rename(valuecurrent=value),
+                    CDep98%>%ungroup()%>%select(GEO,Province,Sectors,TypeofAssets,refper,value, grvalue)%>%rename(valueconstant=value),
+                    by=c("GEO","Province","Sectors","TypeofAssets","refper"))%>%filter( year(refper)>=Syear)
+
+CCInves98<-inner_join(Inves98%>%ungroup()%>%select(GEO,Province,Sectors,TypeofAssets,refper,value)%>%rename(valuecurrent=value),
+                      CInves98%>%ungroup()%>%select(GEO,Province,Sectors,TypeofAssets,refper,value, grvalue)%>%rename(valueconstant=value),
+                      by=c("GEO","Province","Sectors","TypeofAssets","refper"))%>%filter( year(refper)>=Syear)
